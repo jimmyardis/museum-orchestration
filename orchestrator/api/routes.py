@@ -6,10 +6,10 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 
 from ..state.db import get_db
-from ..state.models import TriggerRequest, TriggerResponse
+from ..state.models import TriggerRequest, TriggerResponse, BatchRequest, BatchResponse, PersonaAddRequest
 from ..state.sync import sync_from_pinecone
 from ..agents.registry import PIPELINE_ORDER, list_agents
-from ..queue.executor import run_pipeline
+from ..queue.executor import run_pipeline, run_batch
 
 router = APIRouter()
 
@@ -247,6 +247,61 @@ def get_memory():
 @router.get("/agents")
 def list_agents_endpoint():
     return list_agents()
+
+
+# ------------------------------------------------------------------ #
+#  Batch ingestion                                                     #
+# ------------------------------------------------------------------ #
+
+@router.post("/batch", response_model=BatchResponse)
+def batch_trigger(req: BatchRequest, background_tasks: BackgroundTasks):
+    agents = req.agents or PIPELINE_ORDER
+    if not req.persona_ids:
+        raise HTTPException(status_code=422, detail="persona_ids must not be empty")
+    background_tasks.add_task(run_batch, req.persona_ids, agents)
+    return BatchResponse(
+        queued=len(req.persona_ids),
+        persona_ids=req.persona_ids,
+        agents=agents,
+        message=f"{len(req.persona_ids)} persona pipelines queued ({len(agents)} agents each).",
+    )
+
+
+# ------------------------------------------------------------------ #
+#  Add persona manually                                                #
+# ------------------------------------------------------------------ #
+
+@router.post("/personas")
+def add_persona(req: PersonaAddRequest, background_tasks: BackgroundTasks):
+    import re
+    if not re.match(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$", req.persona_id):
+        raise HTTPException(status_code=422, detail="persona_id must be lowercase kebab-case")
+
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM personas WHERE id = ?", (req.persona_id,)
+        ).fetchone()
+        if existing:
+            raise HTTPException(
+                status_code=409, detail=f"Persona '{req.persona_id}' already exists"
+            )
+        conn.execute(
+            """INSERT INTO personas (id, name, hall, status, vector_count, voice_id, last_updated)
+               VALUES (?, ?, ?, 'pending', 0, ?, ?)""",
+            (req.persona_id, req.name, req.hall, req.voice_id, _now()),
+        )
+
+    if req.run_pipeline:
+        background_tasks.add_task(run_pipeline, req.persona_id, PIPELINE_ORDER)
+
+    return {
+        "persona_id": req.persona_id,
+        "name": req.name,
+        "hall": req.hall,
+        "pipeline_queued": req.run_pipeline,
+        "message": f"Persona '{req.persona_id}' added."
+        + (" Pipeline queued." if req.run_pipeline else ""),
+    }
 
 
 @router.post("/sync")

@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from ..state.db import get_db
 from ..agents.registry import get_agent, PIPELINE_ORDER
 
+MAX_RETRIES = 3
+RETRY_DELAYS = [5, 15, 45]  # exponential backoff seconds
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -20,7 +23,6 @@ def run_pipeline(persona_id: str, agents: list[str] | None = None) -> str:
     context: dict = {"persona_id": persona_id, "batch_id": batch_id}
 
     with get_db() as conn:
-        # Ensure persona row exists
         conn.execute(
             "INSERT OR IGNORE INTO personas (id, name, status) VALUES (?, ?, 'building')",
             (persona_id, persona_id),
@@ -29,8 +31,6 @@ def run_pipeline(persona_id: str, agents: list[str] | None = None) -> str:
             "UPDATE personas SET status = 'building', last_updated = ? WHERE id = ?",
             (_now(), persona_id),
         )
-
-        # Pre-create all job rows so the queue is visible immediately
         job_ids = {}
         for agent_name in agents:
             job_id = str(uuid.uuid4())
@@ -43,8 +43,35 @@ def run_pipeline(persona_id: str, agents: list[str] | None = None) -> str:
 
     for agent_name in agents:
         job_id = job_ids[agent_name]
-        started = _now()
+        success = _run_agent_with_retry(agent_name, persona_id, context, job_id)
+        if not success:
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE personas SET status = 'failed', last_updated = ? WHERE id = ?",
+                    (_now(), persona_id),
+                )
+            break
+    else:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE personas SET status = 'complete', last_updated = ? WHERE id = ?",
+                (_now(), persona_id),
+            )
 
+    return batch_id
+
+
+def _run_agent_with_retry(
+    agent_name: str,
+    persona_id: str,
+    context: dict,
+    job_id: str,
+) -> bool:
+    """Run agent with exponential backoff retry. Returns True on success."""
+    import time
+
+    for attempt in range(MAX_RETRIES):
+        started = _now()
         with get_db() as conn:
             conn.execute(
                 "UPDATE jobs SET status = 'running', started_at = ? WHERE id = ?",
@@ -58,7 +85,7 @@ def run_pipeline(persona_id: str, agents: list[str] | None = None) -> str:
         try:
             agent = get_agent(agent_name)
             result = agent.run(persona_id, context)
-            context[agent_name] = result  # pass output downstream
+            context[agent_name] = result
 
             completed = _now()
             with get_db() as conn:
@@ -69,44 +96,51 @@ def run_pipeline(persona_id: str, agents: list[str] | None = None) -> str:
                 )
                 conn.execute(
                     """UPDATE agent_stats
-                       SET status = 'idle', last_run = ?, success_count = success_count + 1,
-                           current_job_id = NULL
+                       SET status = 'idle', last_run = ?,
+                           success_count = success_count + 1, current_job_id = NULL
                        WHERE agent_name = ?""",
                     (completed, agent_name),
                 )
+            return True
 
         except Exception as exc:
-            completed = _now()
             tb = traceback.format_exc()
+            is_last = attempt == MAX_RETRIES - 1
+            status = "failed" if is_last else "queued"
+            completed = _now()
+
             with get_db() as conn:
                 conn.execute(
-                    """UPDATE jobs SET status = 'failed', completed_at = ?, error_msg = ?
+                    """UPDATE jobs SET status = ?, completed_at = ?, error_msg = ?
                        WHERE id = ?""",
-                    (completed, str(exc), job_id),
+                    (status, completed, f"[attempt {attempt+1}/{MAX_RETRIES}] {exc}", job_id),
                 )
                 conn.execute(
                     """UPDATE agent_stats
-                       SET status = 'error', last_run = ?, failure_count = failure_count + 1,
-                           current_job_id = NULL
+                       SET status = ?, last_run = ?,
+                           failure_count = failure_count + 1, current_job_id = NULL
                        WHERE agent_name = ?""",
-                    (completed, agent_name),
+                    ("error" if is_last else "idle", completed, agent_name),
                 )
                 conn.execute(
-                    """INSERT INTO error_log (agent_name, persona_id, error_type, error_msg, stack_trace)
+                    """INSERT INTO error_log
+                       (agent_name, persona_id, error_type, error_msg, stack_trace)
                        VALUES (?, ?, ?, ?, ?)""",
                     (agent_name, persona_id, type(exc).__name__, str(exc), tb),
                 )
-                conn.execute(
-                    "UPDATE personas SET status = 'failed', last_updated = ? WHERE id = ?",
-                    (completed, persona_id),
-                )
-            break  # stop pipeline on failure
-    else:
-        # All agents completed successfully
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE personas SET status = 'complete', last_updated = ? WHERE id = ?",
-                (_now(), persona_id),
-            )
 
-    return batch_id
+            if is_last:
+                return False
+
+            delay = RETRY_DELAYS[attempt]
+            time.sleep(delay)
+
+    return False
+
+
+def run_batch(
+    persona_ids: list[str],
+    agents: list[str] | None = None,
+) -> list[str]:
+    """Queue pipeline for multiple personas. Returns list of batch IDs."""
+    return [run_pipeline(pid, agents) for pid in persona_ids]

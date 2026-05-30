@@ -170,6 +170,44 @@
           </table>
         </div>
       </div>
+
+      <!-- Add persona form -->
+      <div style="margin-top:12px">
+        <div class="card" style="padding:14px 16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text)">Add Persona</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <input type="text" id="addPersonaId" placeholder="persona-id (kebab-case)" style="width:100%">
+            <input type="text" id="addPersonaName" placeholder="Display Name" style="width:100%">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center">
+            <select id="addPersonaHall" style="width:100%">
+              <option value="">Select hall…</option>
+              <option value="republic-room">Republic Room</option>
+              <option value="observatory">Observatory</option>
+              <option value="press-room">Press Room</option>
+              <option value="counting-house">Counting House</option>
+              <option value="trailblazers">Trailblazers</option>
+              <option value="library">Library</option>
+              <option value="founding-documents">Founding Documents</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" id="addRunPipeline"> Run pipeline
+            </label>
+            <button class="sync-btn" onclick="addPersona()" style="white-space:nowrap">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Batch run -->
+      <div style="margin-top:8px">
+        <div class="card" style="padding:14px 16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text)">Batch Run</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="batchPersonas" placeholder="persona-id-1, persona-id-2, …" style="flex:1">
+            <button class="sync-btn" onclick="runBatch()">▶ Run Batch</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Right column: Agents + Jobs -->
@@ -379,6 +417,47 @@ async function triggerSync() {
   } catch(e) {
     toast(`Sync failed: ${e.message}`, false);
   }
+}
+
+async function addPersona() {
+  const pid = document.getElementById('addPersonaId').value.trim();
+  const name = document.getElementById('addPersonaName').value.trim();
+  const hall = document.getElementById('addPersonaHall').value;
+  const runPipeline = document.getElementById('addRunPipeline').checked;
+  if (!pid || !name) { toast('Enter both ID and name', false); return; }
+  try {
+    const resp = await fetch(`${API}/personas`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({persona_id: pid, name, hall, run_pipeline: runPipeline}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.detail || 'Error', false); return; }
+    toast(data.message);
+    document.getElementById('addPersonaId').value = '';
+    document.getElementById('addPersonaName').value = '';
+    document.getElementById('addPersonaHall').value = '';
+    document.getElementById('addRunPipeline').checked = false;
+    setTimeout(refresh, 500);
+  } catch(e) { toast(`Error: ${e.message}`, false); }
+}
+
+async function runBatch() {
+  const raw = document.getElementById('batchPersonas').value;
+  const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+  if (!ids.length) { toast('Enter at least one persona ID', false); return; }
+  try {
+    const resp = await fetch(`${API}/batch`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({persona_ids: ids}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.detail || 'Error', false); return; }
+    toast(data.message);
+    document.getElementById('batchPersonas').value = '';
+    setTimeout(refresh, 1000);
+  } catch(e) { toast(`Error: ${e.message}`, false); }
 }
 
 // ── Polling ────────────────────────────────────────────────────────────────

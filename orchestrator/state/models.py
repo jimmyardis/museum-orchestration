@@ -44,3 +44,23 @@ class TriggerResponse(BaseModel):
     persona_id: str
     agents: list[str]
     message: str
+
+
+class BatchRequest(BaseModel):
+    persona_ids: list[str]
+    agents: Optional[list[str]] = None  # None = full pipeline
+
+
+class BatchResponse(BaseModel):
+    queued: int
+    persona_ids: list[str]
+    agents: list[str]
+    message: str
+
+
+class PersonaAddRequest(BaseModel):
+    persona_id: str
+    name: str
+    hall: str = ""
+    voice_id: str = ""
+    run_pipeline: bool = False
