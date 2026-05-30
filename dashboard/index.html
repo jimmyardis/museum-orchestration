@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Museum of Minds — Orchestration Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232635;
+    --border: #2e3347;
+    --accent: #6c63ff;
+    --accent2: #a78bfa;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --font: 'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+  header h1 span { color: var(--accent2); }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .sync-btn {
+    background: var(--accent); color: white; border: none; border-radius: 6px;
+    padding: 6px 14px; font-size: 13px; cursor: pointer; font-weight: 500;
+    transition: opacity 0.15s;
+  }
+  .sync-btn:hover { opacity: 0.85; }
+  .last-sync { font-size: 12px; color: var(--muted); }
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .card-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .card-value { font-size: 28px; font-weight: 700; line-height: 1; }
+  .card-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .progress-bar {
+    height: 4px; background: var(--border); border-radius: 2px; margin-top: 10px; overflow: hidden;
+  }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.4s; }
+  .section { margin-bottom: 28px; }
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .section-title { font-size: 15px; font-weight: 600; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase;
+       letter-spacing: 0.5px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .badge-complete  { background: rgba(34,197,94,0.15);  color: var(--green); }
+  .badge-building  { background: rgba(108,99,255,0.2);  color: var(--accent2); }
+  .badge-pending   { background: rgba(100,116,139,0.2); color: var(--muted); }
+  .badge-failed    { background: rgba(239,68,68,0.15);  color: var(--red); }
+  .badge-stub      { background: rgba(234,179,8,0.15);  color: var(--yellow); }
+  .badge-stable    { background: rgba(34,197,94,0.15);  color: var(--green); }
+  .badge-running   { background: rgba(108,99,255,0.2);  color: var(--accent2); }
+  .badge-idle      { background: rgba(100,116,139,0.15); color: var(--muted); }
+  .badge-error     { background: rgba(239,68,68,0.15);  color: var(--red); }
+  .trigger-btn {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 5px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .trigger-btn:hover { border-color: var(--accent); color: var(--accent2); }
+  .trigger-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .scrollbox { max-height: 360px; overflow-y: auto; }
+  .scrollbox::-webkit-scrollbar { width: 4px; }
+  .scrollbox::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 16px; font-size: 13px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 999;
+  }
+  .toast.show { opacity: 1; }
+  .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px;
+  }
+  .dot-green  { background: var(--green); }
+  .dot-yellow { background: var(--yellow); }
+  .dot-red    { background: var(--red); }
+  .dot-purple { background: var(--accent2); }
+  .dot-gray   { background: var(--muted); }
+  .persona-filter { display: flex; gap: 8px; align-items: center; }
+  input[type=text] {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none;
+    transition: border-color 0.15s;
+  }
+  input[type=text]:focus { border-color: var(--accent); }
+  select {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 5px 10px; font-size: 13px; cursor: pointer;
+  }
+  .empty { color: var(--muted); text-align: center; padding: 24px; font-size: 13px; }
+  @media (max-width: 900px) {
+    .grid-4 { grid-template-columns: repeat(2, 1fr); }
+    .grid-2  { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Museum of Minds <span>Orchestration</span></h1>
+  <div class="header-right">
+    <span class="last-sync" id="lastSync">Syncing…</span>
+    <button class="sync-btn" onclick="triggerSync()">↺ Sync Pinecone</button>
+  </div>
+</header>
+
+<main>
+  <!-- Overview cards -->
+  <div class="grid-4" id="overviewCards">
+    <div class="card"><div class="card-label">Personas</div><div class="card-value" id="metaTotal">—</div><div class="card-sub">of 500 target</div><div class="progress-bar"><div class="progress-fill" id="metaBar" style="width:0%"></div></div></div>
+    <div class="card"><div class="card-label">Completed</div><div class="card-value" id="metaComplete">—</div><div class="card-sub" id="metaPercent">—% of target</div></div>
+    <div class="card"><div class="card-label">Total Vectors</div><div class="card-value" id="metaVectors">—</div><div class="card-sub">in Pinecone</div></div>
+    <div class="card"><div class="card-label">Errors (24h)</div><div class="card-value" id="metaErrors" style="color:var(--red)">—</div><div class="card-sub">pipeline failures</div></div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Personas table -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Personas</span>
+        <div class="persona-filter">
+          <input type="text" id="personaSearch" placeholder="Search…" oninput="filterPersonas()" style="width:140px">
+          <select id="personaStatusFilter" onchange="filterPersonas()">
+            <option value="">All statuses</option>
+            <option value="complete">Complete</option>
+            <option value="pending">Pending</option>
+            <option value="building">Building</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+      </div>
+      <div class="card" style="padding:0">
+        <div class="scrollbox">
+          <table>
+            <thead><tr><th>Name</th><th>Hall</th><th>Vectors</th><th>Status</th><th></th></tr></thead>
+            <tbody id="personaTableBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right column: Agents + Jobs -->
+    <div>
+      <!-- Agent status -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Agents</span></div>
+        <div class="card" style="padding:0">
+          <table>
+            <thead><tr><th>Agent</th><th>Status</th><th>Runs</th><th>Rate</th><th>Last Run</th></tr></thead>
+            <tbody id="agentTableBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Recent jobs -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Recent Jobs</span>
+          <span class="last-sync" id="jobsAge"></span>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="scrollbox">
+            <table>
+              <thead><tr><th>Persona</th><th>Agent</th><th>Status</th><th>Time</th></tr></thead>
+              <tbody id="jobTableBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Errors -->
+  <div class="section">
+    <div class="section-header"><span class="section-title">Error Log</span></div>
+    <div class="card" style="padding:0">
+      <div class="scrollbox" style="max-height:220px">
+        <table>
+          <thead><tr><th>Time</th><th>Agent</th><th>Persona</th><th>Error</th></tr></thead>
+          <tbody id="errorTableBody"><tr><td colspan="4" class="empty">No errors</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = window.location.origin;
+let allPersonas = [];
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+function badge(status) {
+  const map = {
+    complete:'complete', building:'building', pending:'pending', failed:'failed',
+    stub:'stub', stable:'stable', running:'running', idle:'idle', error:'error'
+  };
+  const cls = map[status] || 'pending';
+  return `<span class="badge badge-${cls}">${status}</span>`;
+}
+
+function dot(status) {
+  const map = { complete:'green', building:'purple', pending:'gray', failed:'red',
+                 running:'purple', idle:'gray', error:'red', stable:'green' };
+  return `<span class="dot dot-${map[status]||'gray'}"></span>`;
+}
+
+function ago(iso) {
+  if (!iso) return '—';
+  const diff = Date.now() - new Date(iso);
+  if (diff < 60000) return `${Math.floor(diff/1000)}s ago`;
+  if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
+  return `${Math.floor(diff/3600000)}h ago`;
+}
+
+function fmt(n) { return n != null ? n.toLocaleString() : '—'; }
+
+function toast(msg, ok=true) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = ok ? 'var(--green)' : 'var(--red)';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Fetch & Render ─────────────────────────────────────────────────────────
+async function fetchStatus() {
+  const [status, errors] = await Promise.all([
+    fetch(`${API}/status`).then(r => r.json()),
+    fetch(`${API}/errors?limit=30`).then(r => r.json()),
+  ]);
+
+  const h = status.projectHealth || {};
+  document.getElementById('metaTotal').textContent = fmt(h.currentPersonas);
+  document.getElementById('metaComplete').textContent = fmt(h.completedPersonas);
+  document.getElementById('metaPercent').textContent = `${h.completionPercent || 0}% of target`;
+  document.getElementById('metaVectors').textContent = fmt(h.totalVectors);
+  document.getElementById('metaErrors').textContent = status.errorsLast24h ?? '—';
+  document.getElementById('metaBar').style.width = `${Math.min(h.completionPercent || 0, 100)}%`;
+
+  if (h.lastPineconeSync) {
+    document.getElementById('lastSync').textContent = `Synced ${ago(h.lastPineconeSync)}`;
+  }
+
+  // Agents
+  const tbody = document.getElementById('agentTableBody');
+  if (!status.agents?.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No agent data</td></tr>';
+  } else {
+    tbody.innerHTML = status.agents.map(a => `
+      <tr>
+        <td>${dot(a.status)}${a.agent_name.replace(/_/g,' ')}</td>
+        <td>${badge(a.status)}</td>
+        <td>${(a.success_count||0) + (a.failure_count||0)}</td>
+        <td>${a.success_rate != null ? a.success_rate+'%' : '—'}</td>
+        <td>${ago(a.last_run)}</td>
+      </tr>`).join('');
+  }
+
+  // Jobs
+  const jbody = document.getElementById('jobTableBody');
+  if (!status.recentJobs?.length) {
+    jbody.innerHTML = '<tr><td colspan="4" class="empty">No jobs yet</td></tr>';
+  } else {
+    jbody.innerHTML = status.recentJobs.map(j => `
+      <tr>
+        <td>${j.persona_id || '—'}</td>
+        <td>${j.agent_name.replace(/_/g,' ')}</td>
+        <td>${badge(j.status)}</td>
+        <td>${ago(j.created_at)}</td>
+      </tr>`).join('');
+  }
+
+  // Errors
+  const ebody = document.getElementById('errorTableBody');
+  if (!errors.length) {
+    ebody.innerHTML = '<tr><td colspan="4" class="empty">No errors</td></tr>';
+  } else {
+    ebody.innerHTML = errors.map(e => `
+      <tr>
+        <td>${ago(e.timestamp)}</td>
+        <td>${e.agent_name || '—'}</td>
+        <td>${e.persona_id || '—'}</td>
+        <td style="color:var(--red);font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.error_msg||''}">${e.error_msg || e.error_type || '—'}</td>
+      </tr>`).join('');
+  }
+}
+
+async function fetchPersonas() {
+  const data = await fetch(`${API}/personas`).then(r => r.json());
+  allPersonas = data;
+  renderPersonas(data);
+}
+
+function renderPersonas(list) {
+  const tbody = document.getElementById('personaTableBody');
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No personas found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(p => `
+    <tr>
+      <td style="font-weight:500">${p.name || p.id}</td>
+      <td style="color:var(--muted);font-size:12px">${p.hall || '—'}</td>
+      <td>${fmt(p.vector_count)}</td>
+      <td>${badge(p.status)}</td>
+      <td>
+        <button class="trigger-btn" onclick="triggerPersona('${p.id}', this)" title="Run full pipeline">▶ Run</button>
+      </td>
+    </tr>`).join('');
+}
+
+function filterPersonas() {
+  const q = document.getElementById('personaSearch').value.toLowerCase();
+  const s = document.getElementById('personaStatusFilter').value;
+  renderPersonas(allPersonas.filter(p =>
+    (!q || p.name?.toLowerCase().includes(q) || p.id.includes(q)) &&
+    (!s || p.status === s)
+  ));
+}
+
+// ── Actions ────────────────────────────────────────────────────────────────
+async function triggerPersona(personaId, btn) {
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  try {
+    const resp = await fetch(`${API}/personas/${personaId}/trigger`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+    const data = await resp.json();
+    toast(`Pipeline queued for ${personaId}`);
+    setTimeout(fetchStatus, 1500);
+  } catch(e) {
+    toast(`Error: ${e.message}`, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Run';
+  }
+}
+
+async function triggerSync() {
+  try {
+    await fetch(`${API}/sync`, {method:'POST'});
+    toast('Pinecone sync started…');
+    document.getElementById('lastSync').textContent = 'Syncing…';
+    setTimeout(async () => { await fetchStatus(); await fetchPersonas(); }, 3000);
+  } catch(e) {
+    toast(`Sync failed: ${e.message}`, false);
+  }
+}
+
+// ── Polling ────────────────────────────────────────────────────────────────
+async function refresh() {
+  await Promise.all([fetchStatus(), fetchPersonas()]);
+}
+
+refresh();
+setInterval(refresh, 10000); // poll every 10s
+</script>
+
+</body>
+</html>

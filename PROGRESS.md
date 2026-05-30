@@ -1,41 +1,64 @@
 # Museum Orchestration Build Progress
 
-## Current Phase: 3
+## Current Phase: 5
 ## Last Session: 2026-05-30
 ## Status: in-progress
 
 ## Completed
 
 ### Phase 1: Orchestration Core ✅
-- FastAPI app with CORS, lifespan DB init
-- 5-table SQLite schema + context manager
+- FastAPI app, CORS, lifespan DB init
+- 5-table SQLite schema + context manager (WAL mode, FK enforcement)
 - Pydantic models (Persona, Job, AgentStats, Trigger*)
-- BaseAgent ABC + 7 agent stubs in registry
-- Full working job executor (state tracking, error logging, pipeline control)
-- 10 REST endpoints (health, status, personas, jobs, memory, trigger, agents, sync)
-- Railway config (railway.toml, Procfile), .env.example, .gitignore
+- BaseAgent ABC + 7 agents in registry with PIPELINE_ORDER
+- Full working job executor with state tracking, error logging, pipeline control
+- 10 REST endpoints
 
 ### Phase 2: Agent Integration ✅
-- **persona_identifier** — validates slug, reads persona.json, checks Pinecone vector count
-- **corpus_fetcher** — downloads Archive.org (direct identifier or search) + Gutenberg (all URL patterns)
-- **corpus_cleaner** — cleans OCR artifacts, normalizes whitespace, saves to corpus/cleaned/
-- **pinecone_uploader** — Voyage AI voyage-3-large (2048-dim), 600t/100t chunking, Pinecone upsert in batches
-- **page_generator** — commits persona HTML to jimmyardis/museum-of-minds via GitHub API (uses pre-built HTML or generates minimal template)
-- **railway_deployer** — Railway GraphQL: serviceCreate → serviceConnect → domain → env vars → deploy trigger
-- **tts_auditioner** — ElevenLabs preview clips for configured or candidate voices
-- config.py expanded: museum_root, voyage_api_key, github_token/username, railway_project_id/environment_id
+- **persona_identifier** — validates slug, reads persona.json, checks Pinecone
+- **corpus_fetcher** — Archive.org (direct id + search) + Gutenberg (3 URL patterns)
+- **corpus_cleaner** — OCR cleanup, whitespace normalization, PDF extraction
+- **pinecone_uploader** — Voyage AI voyage-3-large (2048-dim), 600t/100t chunks, batched upsert
+- **page_generator** — GitHub API commit to jimmyardis/museum-of-minds
+- **railway_deployer** — Railway GraphQL: create service, connect repo, domain, env vars, deploy
+- **tts_auditioner** — ElevenLabs preview clips
+- Config expanded with all Railway/GitHub/Voyage credentials; .env populated
 
-## Next Session: Phase 3 — Memory and Observability
+### Phase 3: Memory and Observability ✅
+- `state/sync.py` — Pinecone + local directory sync on startup
+  - Always enumerates personas/ directory as authoritative source
+  - Gets total vector count from Pinecone describe_index_stats()
+  - Upserts all personas into SQLite with name/hall/voice metadata
+- Startup sync runs on every boot; 79 personas + 146k vectors confirmed live
+- Real `/sync` POST endpoint (background task)
+- `/sync/status` GET endpoint
+- `/errors` GET endpoint with 24h filter on /status
+- SSE job streaming at `GET /jobs/{job_id}/stream`
+- Enhanced `/status` — agent success rates, errors-last-24h, total vectors, last sync timestamp
+- `/personas` accepts `?hall=` and `?status=` filters
+- `/jobs` accepts `?persona_id=` and `?status=` filters
 
-1. **Pinecone sync on startup** — query Pinecone for all unique persona_ids and upsert into SQLite personas table (status=complete, vector_count populated)
-2. **SSE endpoint for job progress** — `GET /jobs/{id}/stream` returns server-sent events as a job runs
-3. **`/sync` endpoint (real impl)** — triggers Pinecone persona sync into SQLite
-4. **System health metrics** — add per-agent avg run time, success rate to `/status`
-5. **Startup persona census** — log how many personas + vectors exist at boot
+### Phase 4: Web Dashboard ✅
+- `dashboard/index.html` — single-file dashboard served at `/dashboard`
+- Live polling every 10s (no build step, no npm, deploys with the FastAPI service)
+- Overview cards: total personas, completed, vector count, errors/24h + progress bar
+- Personas table with search, status filter, and per-persona "▶ Run" pipeline trigger
+- Agent status table with success rate, run count, last-run time
+- Recent jobs live view
+- Error log with timestamps
+- Manual "↺ Sync Pinecone" button
+
+## Next Session: Phase 5 — Advanced Features
+
+1. **Batch ingestion endpoint** — `POST /batch` body: `{personas: [...], agents: [...]}` — queues N pipelines
+2. **Persona add form** in dashboard — input field for new persona_id + hall, triggers identification
+3. **Auto-scheduling rules** — cron-like table in SQLite; background task checks and fires pipelines
+4. **Retry logic** — exponential backoff for failed agents (max 3 attempts)
+5. **Railway deploy to production** — add this service to giving-expression project
 
 ## Notes
-- All 7 agents import cleanly; pipeline order: identifier→fetcher→cleaner→uploader→page→railway
-- page_generator prefers existing index.html from personas/{id}/ or museum-of-minds/{id}/
-- railway_deployer uses RAILWAY_PROJECT_ID + RAILWAY_ENVIRONMENT_ID from env (not yet in .env)
-- Pinecone filter syntax: `{"persona_id": pid}` (flat, not nested — SDK v8 quirk)
-- voyageai + pinecone must be installed: `pip install voyageai pinecone-client`
+- Pinecone index is flat (no namespaces) — per-persona vector counts show as 0 in SQLite
+  (all 146k vectors are under one namespace; would need per-persona filter queries to count)
+- Dashboard API_BASE auto-detects from window.location.origin — works locally and on Railway
+- .env is populated with all credentials; .env excluded from git
+- Railway PROJECT_ID=2bf7b805, ENVIRONMENT_ID=4af3086a
