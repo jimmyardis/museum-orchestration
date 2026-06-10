@@ -1,8 +1,8 @@
 # Museum Orchestration Build Progress
 
 ## Current Phase: COMPLETE (all 5 phases)
-## Last Session: 2026-05-30
-## Status: complete — pending Railway deploy
+## Last Session: 2026-06-09
+## Status: DEPLOYED — live on Railway
 
 ## Completed
 
@@ -39,16 +39,21 @@
 - **Add persona form** in dashboard — ID + name + hall + run pipeline checkbox
 - **deploy.sh** — one-command Railway deploy after `railway login`
 
-## Railway Deploy (pending user re-auth)
+## Railway Deploy ✅ (2026-06-09)
 
-Railway OAuth token expired for write operations. Steps to deploy:
-```bash
-! railway login          # refresh auth (opens browser)
-cd /home/wner/museum-orchestration
-bash deploy.sh           # creates service, sets vars, deploys
-```
+Deployed via account token (stored as RAILWAY_API_TOKEN in ~/.env).
+- Service: `museum-orchestration` in `giving-expression` project, repo jimmyardis/museum-orchestration branch main
+- Note: repo is NOT connected to the Railway GitHub App — pushes do not auto-deploy.
+  Redeploy with: `railway up --service museum-orchestration --detach` (or redeploy from dashboard)
+- deploy.sh needed `--branch main` on `railway add` (GitHub App not connected); var syntax is `--set k=v`
 
-Dashboard will be live at: https://museum-orchestration-production.up.railway.app/dashboard
+Dashboard live at: https://museum-orchestration-production.up.railway.app/dashboard
+
+### Known gap: 0 personas on Railway
+MUSEUM_ROOT=/app but the repo contains no personas/ directory, so startup sync
+finds 0 personas (locally it found 79). Fix options: bundle persona.json metadata
+into the repo, sync from GitHub (jane-jacobs-bot repo), or point sync at Pinecone
+as the source of truth. Until then the dashboard works but the persona table is empty.
 
 ## Known Notes
 - Pinecone index is flat (no namespaces) — per-persona vector counts tracked at 0 in SQLite
